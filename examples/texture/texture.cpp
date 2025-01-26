@@ -168,8 +168,22 @@ public:
                        dstImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
                        &copyReg);
 
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
         barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
         barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+        barrier.image = dstImage;
+
+        vkCmdPipelineBarrier(copyBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+                             nullptr, 1, &barrier);
+
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+        barrier.image = image;
+
         vkCmdPipelineBarrier(copyBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
                              VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
                              nullptr, 1, &barrier);
@@ -177,7 +191,7 @@ public:
         vulkanDevice->flushCommandBuffer(copyBuffer, queue, true);  
 
         // 映射内存
-        const char* data;
+        void* data;
         vkMapMemory(device, memory, 0, memReqs.size, 0, (void **)&data);
 
         // 保存为 PPM 文件
@@ -191,18 +205,16 @@ public:
         vkGetImageSubresourceLayout(device, dstImage, &subResource,
                                     &subResourceLayout);
 
-        // 写入像素数据
+        const uint8_t *imageData = static_cast<const uint8_t *>(data);
         for (uint32_t y = 0; y < height; y++) {
-            unsigned int *row = (unsigned int *)data;
-            for (uint32_t x = 0; x < width; x++) {
-                {
-                    char c = *row;
-                    file.write(&c, 3);
-                }
-                row++;
-            }
-            data += subResourceLayout.rowPitch;
-        }
+          const uint8_t *row = imageData + subResourceLayout.rowPitch * y;
+          for (uint32_t x = 0; x < width; x++) {
+            file.write(reinterpret_cast<const char *>(row + 2), 1);
+            file.write(reinterpret_cast<const char *>(row + 1), 1);
+            file.write(reinterpret_cast<const char *>(row), 1);
+            row += 4; // Skip alpha
+          }
+        }  
 
         file.close();
         vkUnmapMemory(device, memory);
